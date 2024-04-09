@@ -10,6 +10,8 @@ E1000 driver in Rust for the Intel 82540EP/EM and 82574L Gigabit Ethernet.
 
 ## Quick start on bare metal OS
 
+For instance, [E1000 driver in Rust on ArceOS/Starry](https://github.com/elliott10/arceos/blob/net-e1000/crates/driver_net/src/e1000.rs)
+
 Initialize PCI and E1000 driver
 ```
 pub struct Kernfn;

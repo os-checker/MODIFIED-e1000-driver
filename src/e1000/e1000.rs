@@ -6,18 +6,29 @@ use alloc::vec::Vec;
 use core::{cmp::min, mem::size_of, slice::from_raw_parts_mut};
 use crate::utils::*;
 
+const PAGE_SIZE: usize = 4096;
 const TX_RING_SIZE: usize = 256;
 const RX_RING_SIZE: usize = 256;
 const MBUF_SIZE: usize = 2048;
 
+const alloc_tx_ring_pages: usize =
+((TX_RING_SIZE * size_of::<TxDesc>()) + (PAGE_SIZE - 1)) / PAGE_SIZE;
+const alloc_rx_ring_pages: usize =
+((RX_RING_SIZE * size_of::<RxDesc>()) + (PAGE_SIZE - 1)) / PAGE_SIZE;
+
+const alloc_tx_buffer_pages: usize =
+((TX_RING_SIZE * MBUF_SIZE) + (PAGE_SIZE - 1)) / PAGE_SIZE;
+const alloc_rx_buffer_pages: usize =
+((RX_RING_SIZE * MBUF_SIZE) + (PAGE_SIZE - 1)) / PAGE_SIZE;
+
 /// Kernel functions that drivers must use
 pub trait KernelFunc {
     /// Page size (usually 4K)
-    const PAGE_SIZE: usize = 4096;
+    const PAGE_SIZE: usize = PAGE_SIZE;
 
     // 或请求分配irq
 
-    /// Allocate consequent physical memory for DMA;
+    /// Allocate 'contiguous physical memory' for DMA;
     /// Return (cpu virtual address, dma physical address) which is page aligned.
     //fn dma_alloc_coherent(pages: usize) -> usize;
     fn dma_alloc_coherent(&mut self, pages: usize) -> (usize, usize);
@@ -75,10 +86,6 @@ impl<'a, K: KernelFunc> E1000Device<'a, K> {
     pub fn new(mut kfn: K, mapped_regs: usize) -> Result<Self, i32> {
         info!("New E1000 device @ {:#x}", mapped_regs);
         // 分配的ring内存空间需要16字节对齐
-        let alloc_tx_ring_pages =
-            ((TX_RING_SIZE * size_of::<TxDesc>()) + (K::PAGE_SIZE - 1)) / K::PAGE_SIZE;
-        let alloc_rx_ring_pages =
-            ((RX_RING_SIZE * size_of::<RxDesc>()) + (K::PAGE_SIZE - 1)) / K::PAGE_SIZE;
         let (tx_ring_vaddr, tx_ring_dma) = kfn.dma_alloc_coherent(alloc_tx_ring_pages);
         let (rx_ring_vaddr, rx_ring_dma) = kfn.dma_alloc_coherent(alloc_rx_ring_pages);
 
@@ -107,8 +114,6 @@ impl<'a, K: KernelFunc> E1000Device<'a, K> {
         let mut rx_mbufs = Vec::with_capacity(rx_ring.len());
 
         // 一起申请所有TX内存
-        let alloc_tx_buffer_pages =
-            ((TX_RING_SIZE * MBUF_SIZE) + (K::PAGE_SIZE - 1)) / K::PAGE_SIZE;
         let (mut tx_mbufs_vaddr, mut tx_mbufs_dma) = kfn.dma_alloc_coherent(alloc_tx_buffer_pages);
 
         for i in 0..TX_RING_SIZE {
@@ -120,8 +125,6 @@ impl<'a, K: KernelFunc> E1000Device<'a, K> {
         }
 
         // 一起申请所有RX内存
-        let alloc_rx_buffer_pages =
-            ((RX_RING_SIZE * MBUF_SIZE) + (K::PAGE_SIZE - 1)) / K::PAGE_SIZE;
         //let mut rx_mbufs_dma: usize = K::dma_alloc_coherent(alloc_rx_buffer_pages);
         let (mut rx_mbufs_vaddr, mut rx_mbufs_dma) = kfn.dma_alloc_coherent(alloc_rx_buffer_pages);
         if rx_mbufs_vaddr == 0 {
@@ -320,7 +323,12 @@ impl<'a, K: KernelFunc> E1000Device<'a, K> {
         // DD设为1时，内存中的接收包是完整的
         while (self.rx_ring[rindex].status & E1000_RXD_STAT_DD as u8) != 0 {
             info!("Read E1000_RDT + 1 = {:#x}", rindex);
-            let len = self.rx_ring[rindex].length as usize;
+            let mut len = self.rx_ring[rindex].length as usize;
+	    if len > self.mbuf_size {
+		    error!("The packet: {} received is TOO LARGE", len);
+		    len = self.mbuf_size;
+	    }
+
             let mbuf = unsafe { from_raw_parts_mut(self.rx_mbufs[rindex] as *mut u8, len) };
             info!("RX PKT {} <<<<<<<<<", len);
             //recv_packets.push_back(mbuf.to_vec());
@@ -413,4 +421,15 @@ pub fn net_rx(packet: &mut [u8]) {
       mbuffree(m);
 
       */
+}
+
+impl<'a, K: KernelFunc> Drop for E1000Device<'a, K> {
+	fn drop(&mut self) {
+		debug!("Drop DMA memory");
+		self.kfn.dma_free_coherent(self.rx_mbufs[0], alloc_rx_buffer_pages);
+		self.kfn.dma_free_coherent(self.tx_ring.as_ptr() as usize, alloc_tx_ring_pages);
+		self.kfn.dma_free_coherent(self.rx_ring.as_ptr() as usize, alloc_rx_ring_pages);
+		self.kfn.dma_free_coherent(self.tx_mbufs[0], alloc_tx_buffer_pages);
+		self.kfn.dma_free_coherent(self.rx_mbufs[0], alloc_rx_buffer_pages);
+	}
 }
