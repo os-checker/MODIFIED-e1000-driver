@@ -1,10 +1,10 @@
 // e1000 Driver for Intel 82540EP/EM
-use super::e1000_const::*;
 use super::super::Ext;
 use super::super::Volatile;
+use super::e1000_const::*;
+use crate::utils::*;
 use alloc::vec::Vec;
 use core::{cmp::min, mem::size_of, slice::from_raw_parts_mut};
-use crate::utils::*;
 
 const PAGE_SIZE: usize = 4096;
 const TX_RING_SIZE: usize = 256;
@@ -12,14 +12,12 @@ const RX_RING_SIZE: usize = 256;
 const MBUF_SIZE: usize = 2048;
 
 const alloc_tx_ring_pages: usize =
-((TX_RING_SIZE * size_of::<TxDesc>()) + (PAGE_SIZE - 1)) / PAGE_SIZE;
+    ((TX_RING_SIZE * size_of::<TxDesc>()) + (PAGE_SIZE - 1)) / PAGE_SIZE;
 const alloc_rx_ring_pages: usize =
-((RX_RING_SIZE * size_of::<RxDesc>()) + (PAGE_SIZE - 1)) / PAGE_SIZE;
+    ((RX_RING_SIZE * size_of::<RxDesc>()) + (PAGE_SIZE - 1)) / PAGE_SIZE;
 
-const alloc_tx_buffer_pages: usize =
-((TX_RING_SIZE * MBUF_SIZE) + (PAGE_SIZE - 1)) / PAGE_SIZE;
-const alloc_rx_buffer_pages: usize =
-((RX_RING_SIZE * MBUF_SIZE) + (PAGE_SIZE - 1)) / PAGE_SIZE;
+const alloc_tx_buffer_pages: usize = ((TX_RING_SIZE * MBUF_SIZE) + (PAGE_SIZE - 1)) / PAGE_SIZE;
+const alloc_rx_buffer_pages: usize = ((RX_RING_SIZE * MBUF_SIZE) + (PAGE_SIZE - 1)) / PAGE_SIZE;
 
 /// Kernel functions that drivers must use
 pub trait KernelFunc {
@@ -220,21 +218,27 @@ impl<'a, K: KernelFunc> E1000Device<'a, K> {
         self.regs[E1000_TDH].write(0); // TX Desc Head
 
         // [E1000 14.4] Receive initialization
-        info!("rx ring 0: {:x?}",self.rx_ring[0]);
+        info!("rx ring 0: {:x?}", self.rx_ring[0]);
         if (self.rx_ring.len() * size_of::<RxDesc>()) % 128 != 0 {
             error!("e1000, size of rx_ring is invalid");
         }
 
         // receiver control bits.
-        self.regs[E1000_RCTL].write((
-            E1000_RCTL_EN |  // enable receiver
+        self.regs[E1000_RCTL].write(
+            (
+                E1000_RCTL_EN |  // enable receiver
             E1000_RCTL_BAM |  // enable broadcast
             E1000_RCTL_SZ_2048 |  // 2048-byte rx buffers
-            E1000_RCTL_SECRC  // strip CRC
-            ) & !(0b11 << 10) // Just for e1000e DTYP bits[11:10]=00 : Legacy description type
-        ); 
+            E1000_RCTL_SECRC
+                // strip CRC
+            ) & !(0b11 << 10), // Just for e1000e DTYP bits[11:10]=00 : Legacy description type
+        );
         self.regs[E1000_RFCTL].write(0); //e1000e RFCTL.EXSTEN bits[15]=0 : Legacy Desc
-        info!("e1000 RCTL: {:#x}, RFCTL: {:#x}", self.regs[E1000_RCTL].read(), self.regs[E1000_RFCTL].read());
+        info!(
+            "e1000 RCTL: {:#x}, RFCTL: {:#x}",
+            self.regs[E1000_RCTL].read(),
+            self.regs[E1000_RFCTL].read()
+        );
 
         self.regs[E1000_RDBAL].write(self.rx_ring_dma as u32);
         self.regs[E1000_RDBAH].write((self.rx_ring_dma >> 32) as u32);
@@ -324,10 +328,10 @@ impl<'a, K: KernelFunc> E1000Device<'a, K> {
         while (self.rx_ring[rindex].status & E1000_RXD_STAT_DD as u8) != 0 {
             info!("Read E1000_RDT + 1 = {:#x}", rindex);
             let mut len = self.rx_ring[rindex].length as usize;
-	    if len > self.mbuf_size {
-		    error!("The packet: {} received is TOO LARGE", len);
-		    len = self.mbuf_size;
-	    }
+            if len > self.mbuf_size {
+                error!("The packet: {} received is TOO LARGE", len);
+                len = self.mbuf_size;
+            }
 
             let mbuf = unsafe { from_raw_parts_mut(self.rx_mbufs[rindex] as *mut u8, len) };
             info!("RX PKT {} <<<<<<<<<", len);
@@ -358,7 +362,7 @@ impl<'a, K: KernelFunc> E1000Device<'a, K> {
             None
         }
     }
-    
+
     // 参考
     // xv6_for_internet_os
     // https://xiayingp.gitbook.io/build_a_os/labs/lab-10-networking-part-1
@@ -424,12 +428,15 @@ pub fn net_rx(packet: &mut [u8]) {
 }
 
 impl<'a, K: KernelFunc> Drop for E1000Device<'a, K> {
-	fn drop(&mut self) {
-		debug!("Drop DMA memory");
-		self.kfn.dma_free_coherent(self.rx_mbufs[0], alloc_rx_buffer_pages);
-		self.kfn.dma_free_coherent(self.tx_ring.as_ptr() as usize, alloc_tx_ring_pages);
-		self.kfn.dma_free_coherent(self.rx_ring.as_ptr() as usize, alloc_rx_ring_pages);
-		self.kfn.dma_free_coherent(self.tx_mbufs[0], alloc_tx_buffer_pages);
-		self.kfn.dma_free_coherent(self.rx_mbufs[0], alloc_rx_buffer_pages);
-	}
+    fn drop(&mut self) {
+        debug!("Drop DMA memory");
+        self.kfn
+            .dma_free_coherent(self.tx_ring.as_ptr() as usize, alloc_tx_ring_pages);
+        self.kfn
+            .dma_free_coherent(self.rx_ring.as_ptr() as usize, alloc_rx_ring_pages);
+        self.kfn
+            .dma_free_coherent(self.tx_mbufs[0], alloc_tx_buffer_pages);
+        self.kfn
+            .dma_free_coherent(self.rx_mbufs[0], alloc_rx_buffer_pages);
+    }
 }
