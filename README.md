@@ -2,7 +2,7 @@
 E1000 driver in Rust for the Intel 82540EP/EM and 82574L Gigabit Ethernet.
 
 ## Support features
-* `e1000` and `e1000e` driver for RISCV and x86_64 on Qemu is supported
+* `e1000` and `e1000e` driver on Qemu and [a Physical Industrial Computer](doc/E1000E驱动移植于工控机的技术总结及网卡性能测试.pdf) are supported
 * Initialize simple PCI-Express for e1000 device
 * Implement the e1000 driver as a linux driver module
 
@@ -42,7 +42,74 @@ make ARCH=<cpu arch> KDIR=<path to linux>
 # e.g. make ARCH=x86_64 KDIR=/home/rust/linux/build
 ```
 
+* `e1000-driver` runs on Linux
+
 ![e1000 on linux](doc/img/rust-for-linux-e1000.png)
+
+* Performance test results on Linux
+
+```
+root@debian:~/xly# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host noprefixroute
+       valid_lft forever preferred_lft forever
+2: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0
+4: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 52:54:00:12:34:56 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.10/24 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::5054:ff:fe12:3456/64 scope link proto kernel_ll
+       valid_lft forever preferred_lft forever
+root@debian:~/xly# iperf3 -c 192.168.0.250 -p 8880 -b 100M -P 1 -t 5
+Connecting to host 192.168.0.250, port 8880
+[  5] local 10.0.2.10 port 50338 connected to 192.168.0.250 port 8880
+[ ID] Interval           Transfer     Bitrate         Retr  Cwnd
+[  5]   0.00-1.00   sec  11.9 MBytes  99.4 Mbits/sec    0    177 KBytes
+[  5]   1.00-2.00   sec  12.0 MBytes   101 Mbits/sec    0    177 KBytes
+[  5]   2.00-3.00   sec  11.9 MBytes  99.6 Mbits/sec    0    177 KBytes
+[  5]   3.00-4.00   sec  11.9 MBytes  99.6 Mbits/sec    0    177 KBytes
+[  5]   4.00-5.00   sec  12.0 MBytes   101 Mbits/sec    0    177 KBytes
+- - - - - - - - - - - - - - - - - - - - - - - - -
+[ ID] Interval           Transfer     Bitrate         Retr
+[  5]   0.00-5.00   sec  59.6 MBytes   100 Mbits/sec    0             sender
+[  5]   0.00-5.00   sec  59.6 MBytes   100 Mbits/sec                  receiver
+
+iperf Done.
+root@debian:~/xly# iperf3 -u -c 192.168.0.250 -p 8880 -b 100M -P 1 -t 5
+Connecting to host 192.168.0.250, port 8880
+[  5] local 10.0.2.10 port 44234 connected to 192.168.0.250 port 8880
+[ ID] Interval           Transfer     Bitrate         Total Datagrams
+[  5]   0.00-1.00   sec  11.9 MBytes  99.9 Mbits/sec  8556
+[  5]   1.00-2.00   sec  11.9 MBytes   100 Mbits/sec  8562
+[  5]   2.00-3.00   sec  11.9 MBytes   100 Mbits/sec  8562
+[  5]   3.00-4.00   sec  11.9 MBytes   100 Mbits/sec  8562
+[  5]   4.00-5.00   sec  11.9 MBytes   100 Mbits/sec  8561
+- - - - - - - - - - - - - - - - - - - - - - - - -
+[ ID] Interval           Transfer     Bitrate         Jitter    Lost/Total Datagrams
+[  5]   0.00-5.00   sec  59.6 MBytes   100 Mbits/sec  0.000 ms  0/42803 (0%)  sender
+[  5]   0.00-5.04   sec  59.6 MBytes  99.1 Mbits/sec  0.002 ms  0/42803 (0%)  receiver
+
+iperf Done.
+root@debian:~/xly# ping 10.0.2.2
+PING 10.0.2.2 (10.0.2.2) 56(84) bytes of data.
+64 bytes from 10.0.2.2: icmp_seq=1 ttl=255 time=0.149 ms
+64 bytes from 10.0.2.2: icmp_seq=2 ttl=255 time=0.256 ms
+64 bytes from 10.0.2.2: icmp_seq=3 ttl=255 time=0.193 ms
+64 bytes from 10.0.2.2: icmp_seq=4 ttl=255 time=0.190 ms
+^C
+--- 10.0.2.2 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3054ms
+rtt min/avg/max/mdev = 0.149/0.197/0.256/0.038 ms
+root@debian:~/xly# lsmod
+Module                  Size  Used by
+e1000_for_linux        45056  0
+root@debian:~/xly# uname -a
+L
+```
 
 ## Reference
 * Linux source code
