@@ -12,3 +12,6 @@ description = "E1000 driver in Rust for the Intel 82540EP/EM Gigabit Ethernet."
 [dependencies]
 volatile = "0.3.0"
 log = "0.4"
+
+[workspace]
+members = ["./examples/"]
