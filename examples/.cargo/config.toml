@@ -1,5 +1,6 @@
 [build]
 target = ["x86_64-unknown-linux-gnu", "riscv64gc-unknown-none-elf"]
+# target = "riscv64gc-unknown-none-elf"
 # target = ["riscv64gc-unknown-none-elf", "x86_64-unknown-linux-gnu"]
 
 [target.riscv64gc-unknown-none-elf]
